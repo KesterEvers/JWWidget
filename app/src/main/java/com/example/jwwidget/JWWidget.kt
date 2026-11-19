@@ -46,6 +46,10 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.withContext
 import java.net.HttpURLConnection
 import java.net.URL
+import androidx.compose.ui.unit.dp
+import androidx.glance.layout.Box
+import androidx.glance.layout.size
+
 
 data class UiArticle(
     val id: String,
@@ -93,37 +97,65 @@ class JWWidget : GlanceAppWidget() {
                     )
                     .padding(12.dp)
             ) {
-                // Klickbarer Header -> Startseite
-                Column(
-                    modifier = GlanceModifier
-                        .fillMaxWidth()
-                        .clickable(
-                            actionRunCallback<OpenUrlAction>(
-                                actionParametersOf(ArticleUrlKey to "https://jungewelt.de")
+                // Kopfzeile: Links Aktualisieren-Button (↻), daneben Titel -> Startseite
+                Row(
+                    modifier = GlanceModifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Klickbarer Titel -> Startseite
+                    Column(
+                        modifier = GlanceModifier
+                            .defaultWeight()
+                            .clickable(
+                                actionRunCallback<OpenUrlAction>(
+                                    actionParametersOf(ArticleUrlKey to "https://jungewelt.de")
+                                )
+                            )
+                    ) {
+                        Text(
+                            text = "junge Welt",
+                            style = TextStyle(
+                                color = ColorProvider(
+                                    day = Color(0xFFCC0000),
+                                    night = Color(0xFFFF5555)
+                                ),
+                                fontSize = 25.sp,
+                                fontWeight = FontWeight.Bold
                             )
                         )
-                ) {
-                    Text(
-                        text = "junge Welt",
-                        style = TextStyle(
-                            color = ColorProvider(
-                                day = Color(0xFFCC0000),
-                                night = Color(0xFFFF5555)
-                            ),
-                            fontSize = 25.sp,
-                            fontWeight = FontWeight.Bold
+                        Text(
+                            text = "DIE TAGESZEITUNG",
+                            style = TextStyle(
+                                fontSize = 9.sp,
+                                color = ColorProvider(day = Color.Black, night = Color.White)
+                            )
                         )
-                    )
-                    Text(
-                        text = "DIE TAGESZEITUNG",
-                        style = TextStyle(
-                            fontSize = 9.sp,
-                            color = ColorProvider(day = Color.Black, night = Color.White)
+                    }
+
+                    Spacer(modifier = GlanceModifier.width(8.dp))
+
+                    // Linksbündiger Reload-Button
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = GlanceModifier
+                            .size(36.dp)
+                            .cornerRadius(18.dp)
+                            .clickable(actionRunCallback<RefreshAction>())
+                    ) {
+                        Text(
+                            text = "↻",
+                            style = TextStyle(
+                                fontSize = 22.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = ColorProvider(
+                                    day = Color(0xFFCC0000),
+                                    night = Color(0xFFFF5555)
+                                )
+                            )
                         )
-                    )
+                    }
                 }
 
-                Spacer(modifier = GlanceModifier.height(8.dp))
 
                 // Scrollbare Artikelliste
                 LazyColumn(
@@ -277,5 +309,15 @@ class OpenUrlAction : ActionCallback {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         context.startActivity(intent)
+    }
+}
+
+class RefreshAction : ActionCallback {
+    override suspend fun onAction(
+        context: Context,
+        glanceId: GlanceId,
+        parameters: ActionParameters
+    ) {
+        JWWidget().update(context, glanceId)
     }
 }
