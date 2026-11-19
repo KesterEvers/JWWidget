@@ -1,15 +1,51 @@
-*.iml
-.gradle
-/local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
-.DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
+# Kompilierte App-Pakete & Bytecode
+*.apk
+*.aar
+*.ap_
+*.aab
+*.dex
+*.class
+
+# Alle Build-Ausgaben (Root- und Modul-Ebene, z. B. build/ und app/build/)
+build/
+bin/
+gen/
+out/
+
+# Gradle & Kotlin Caches (werden beim ersten Build automatisch neu erzeugt)
+.gradle/
+.kotlin/
+
+# Lokale Umgebungspfade (jeder Entwickler hat seinen eigenen Android-SDK-Pfad)
 local.properties
+
+# Android Studio / IntelliJ – persönliche & temporäre Dateien ignorieren
+# (Wichtige Projektdateien wie .idea/gradle.xml, .idea/misc.xml & .idea/vcs.xml bleiben erhalten!)
+*.iml
+.idea/caches/
+.idea/libraries/
+.idea/modules.xml
+.idea/workspace.xml
+.idea/navEditor.xml
+.idea/assetWizardSettings.xml
+.idea/deploymentTargetSelector.xml
+.idea/render.experimental.xml
+.idea/shelf/
+.idea/tasks.xml
+.idea/usage.statistics.xml
+
+# Signatur-Schlüssel & Zertifikate (Sicherheit!)
+*.jks
+*.keystore
+
+# Profiling, Dumps & Native Builds
+captures/
+*.hprof
+.externalNativeBuild/
+.cxx/
+
+# Betriebssystem-Dateien (Windows / macOS / Linux)
+.DS_Store
+Thumbs.db
+desktop.ini
+*~
