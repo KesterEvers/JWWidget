@@ -53,6 +53,7 @@ Ein natives Android-Homescreen-Widget auf Basis von **Jetpack Glance**, das den 
 ## Projektstruktur
 
 ```text
+├── .github/ISSUE_TEMPLATE/            # Vorlagen für Bug-Reports & Feature-Wünsche
 ├── app/src/main/
 │   ├── java/com/example/jwwidget/
 │   │   ├── JWWidget.kt                # Haupt-UI & Layout des Glance-Widgets
@@ -71,6 +72,17 @@ Ein natives Android-Homescreen-Widget auf Basis von **Jetpack Glance**, das den 
 ## Hinweise zum Betrieb (Energiesparmodus)
 
 Damit das Widget auf Geräten mit aggressivem Hintergrund-Management (z. B. Samsung One UI) zuverlässig aktualisiert, empfiehlt es sich, in den Android-App-Einstellungen unter **Akku** die Option **„Nicht eingeschränkt“** für *JWWidget* zu aktivieren.
+
+## Feedback, Bugs & Mitwirken
+
+Dieses Projekt lebt vom Mitmachen! Egal ob dir ein Fehler auffällt, du eine Idee für ein neues Feature hast oder selbst Code beisteuern möchtest – du bist herzlich eingeladen:
+
+- **Fehler melden (Bug Report):** Das Widget verhält sich unerwartet oder zeigt einen Darstellungsfehler? Erstelle einfach ein Ticket über das [Bug-Report-Formular](https://github.com).
+- **Feature vorschlagen (Feature Request):** Dir fehlt eine Einstellung oder Funktion (z. B. Kategorie-Filter)? Reiche deinen Vorschlag über das [Feature-Wunsch-Formular](https://github.com) ein.
+- **Selbst mitentwickeln (Pull Requests):**
+  1. Erstelle oben rechts im Repository einen **Fork** des Projekts.
+  2. Klone deinen Fork lokal und erstelle einen neuen Branch (`git checkout -b feature/mein-feature`).
+  3. Teste deine Änderungen in Android Studio und stelle anschließend auf GitHub einen **Pull Request** gegen den `main`-Branch.
 
 ## Lizenz & Hinweis
 
