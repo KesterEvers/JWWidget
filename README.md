@@ -26,6 +26,7 @@ Ein natives Android-Homescreen-Widget auf Basis von **Jetpack Glance**, das den 
 - **Settings-UI:** Jetpack Compose & Material 3
 - **RSS-Parsing:** Android `XmlPullParser` mit MRSS-Namespace-Unterstützung (`media:content`)
 - **Nebenläufigkeit:** Kotlin Coroutines (`async` / `awaitAll` für paralleles Laden der Thumbnails)
+- **AI:** Dieses Projekt wurde zum großen Teil mit ChatGPT und Gemini Vibecoded
 
 ## Installation & Entwicklung
 
