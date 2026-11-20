@@ -1,0 +1,59 @@
+name: 🐞 Bug melden (Fehlerbericht)
+description: Ein Problem oder einen Absturz im junge Welt Widget melden
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Danke fürs Melden! Bitte fülle die Felder unten kurz aus, damit der Fehler schnell nachgestellt werden kann.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Was ist passiert?
+      description: Beschreibe kurz und verständlich, was schiefgelaufen ist.
+      placeholder: z. B. Das Widget lädt nach einem Neustart keine neuen Artikel mehr...
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Wie lässt sich der Fehler reproduzieren?
+      description: Schritte, um das Problem nachzustellen
+      placeholder: |
+        1. Widget auf 3×4 vergrößern
+        2. Auf das Aktualisieren-Symbol (↻) tippen
+        3. ...
+    validations:
+      required: true
+
+  - type: input
+    id: device
+    attributes:
+      label: Smartphone-Modell & Android-Version
+      placeholder: z. B. Samsung Galaxy S24 (Android 15 / One UI 7) oder Pixel 8 (Android 16)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: launcher
+    attributes:
+      label: Verwendeter Homescreen-Launcher
+      options:
+        - Samsung One UI Home
+        - Google Pixel Launcher
+        - Nova Launcher
+        - Niagara Launcher
+        - Sonstiger Launcher
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Kurzer Vorab-Check
+      options:
+        - label: Die Akku-Nutzung für JWWidget steht in den Android-Einstellungen auf „Nicht eingeschränkt“
+        - label: Ich habe bereits geprüft, ob es schon ein offenes Issue zu diesem Problem gibt

@@ -1,0 +1,33 @@
+name: 💡 Feature-Wunsch (Verbesserungsvorschlag)
+description: Eine neue Funktion oder Einstellungsmöglichkeit für das Widget vorschlagen
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Du hast eine Idee für das **junge Welt Widget**? Beschreibe deinen Vorschlag gerne hier!
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Welches Problem löst dein Vorschlag oder was fehlt dir aktuell?
+      placeholder: z. B. Ich würde gerne nur bestimmte Ressorts wie „Inland“ und „Ausland“ im Widget sehen...
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Wie stellst du dir die Umsetzung vor?
+      placeholder: z. B. Eine Auswahl-Liste mit Checkboxen in den Widget-Einstellungen...
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Zusätzliche Infos oder Skizzen (optional)
+      description: Falls du Beispiele aus anderen Widgets hast, füge sie gerne hier ein.
+    validations:
+      required: false
