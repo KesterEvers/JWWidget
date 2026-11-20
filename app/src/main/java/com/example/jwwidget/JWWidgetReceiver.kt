@@ -1,4 +1,8 @@
 package com.example.jwwidget
 
-class JWWidgetReceiver {
+import androidx.glance.appwidget.GlanceAppWidget
+import androidx.glance.appwidget.GlanceAppWidgetReceiver
+
+class JWWidgetReceiver : GlanceAppWidgetReceiver() {
+    override val glanceAppWidget: GlanceAppWidget = JWWidget()
 }

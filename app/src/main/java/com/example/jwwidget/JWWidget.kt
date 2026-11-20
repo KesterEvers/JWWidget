@@ -51,24 +51,22 @@ import androidx.glance.layout.Box
 import androidx.glance.layout.size
 import androidx.glance.layout.wrapContentWidth
 
-
-data class UiArticle(
-    val id: String,
-    val link: String,
-    val category: String,
-    val title: String,
-    val description: String,
-    val relativeTime: String,
-    val bitmap: Bitmap?
-)
-
 class JWWidget : GlanceAppWidget() {
 
     override suspend fun provideGlance(
         context: Context,
         id: GlanceId
     ) {
-        val rawArticles = RssReader.fetchArticles().take(30)
+        val settings = WidgetSettingsRepository.load(context)
+
+        val rawArticles = RssReader.fetchArticles()
+            .filter { article ->
+                !settings.hideOnlineAbo || !article.title.contains("[Online-Abo]", ignoreCase = true)
+            }
+            .take(settings.maxArticles)
+
+        // Ziel-Pixelgröße für Bitmaps dynamisch aus imageWidthDp berechnen (Faktor 2 für scharfe Displays)
+        val targetBitmapPx = (settings.imageWidthDp * 2).coerceAtLeast(80)
 
         val uiArticles = withContext(Dispatchers.IO) {
             rawArticles.map { article ->
@@ -80,7 +78,11 @@ class JWWidget : GlanceAppWidget() {
                         title = article.title,
                         description = article.description,
                         relativeTime = formatRelativeTime(article.pubDateMillis),
-                        bitmap = article.imageUrl?.let { loadBitmap(it) }
+                        bitmap = if (settings.showImages) {
+                            article.imageUrl?.let { loadBitmap(it, targetBitmapPx) }
+                        } else {
+                            null
+                        }
                     )
                 }
             }.awaitAll()
@@ -92,18 +94,17 @@ class JWWidget : GlanceAppWidget() {
                     .fillMaxSize()
                     .background(
                         ColorProvider(
-                            day = Color.White,
-                            night = Color(0xFF202020)
+                            day = Color.White.copy(alpha = settings.backgroundAlpha),
+                            night = Color(0xFF202020).copy(alpha = settings.backgroundAlpha)
                         )
                     )
                     .padding(12.dp)
             ) {
-                // Kopfzeile: Links Aktualisieren-Button (↻), daneben Titel -> Startseite
+                // Kopfzeile: Logo -> Startseite, Rechts Reload-Button (↻)
                 Row(
                     modifier = GlanceModifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Klickbares Logo -> Startseite
                     Box(
                         modifier = GlanceModifier
                             .defaultWeight()
@@ -119,14 +120,13 @@ class JWWidget : GlanceAppWidget() {
                             contentDescription = "junge Welt Logo",
                             contentScale = ContentScale.Fit,
                             modifier = GlanceModifier
-                                .height(32.dp)       // Höhe nach Wunsch anpassen
-                                .wrapContentWidth()  // Breite passt sich automatisch dem Logo-Seitenverhältnis an
+                                .height(settings.logoHeightDp.dp)
+                                .wrapContentWidth()
                         )
                     }
 
                     Spacer(modifier = GlanceModifier.width(8.dp))
 
-                    // Linksbündiger Reload-Button
                     Box(
                         contentAlignment = Alignment.Center,
                         modifier = GlanceModifier
@@ -148,6 +148,7 @@ class JWWidget : GlanceAppWidget() {
                     }
                 }
 
+                Spacer(modifier = GlanceModifier.height(6.dp))
 
                 // Scrollbare Artikelliste
                 LazyColumn(
@@ -168,19 +169,20 @@ class JWWidget : GlanceAppWidget() {
                                 .padding(vertical = 6.dp)
                         ) {
                             // 1. Zeile: KATEGORIE - vor 17 Min.
-                            Text(
-                                text = "${article.category.uppercase()} - ${article.relativeTime}",
-                                style = TextStyle(
-                                    fontSize = 9.sp,
-                                    color = ColorProvider(
-                                        day = Color.DarkGray,
-                                        night = Color.LightGray
-                                    )
-                                ),
-                                maxLines = 1
-                            )
-
-                            Spacer(modifier = GlanceModifier.height(2.dp))
+                            if (settings.showCategoryAndTime) {
+                                Text(
+                                    text = "${article.category.uppercase()} - ${article.relativeTime}",
+                                    style = TextStyle(
+                                        fontSize = settings.metaFontSizeSp.sp,
+                                        color = ColorProvider(
+                                            day = Color.DarkGray,
+                                            night = Color.LightGray
+                                        )
+                                    ),
+                                    maxLines = 1
+                                )
+                                Spacer(modifier = GlanceModifier.height(2.dp))
+                            }
 
                             // 2. Zeile: Überschrift links + Bild rechtsbündig
                             Row(
@@ -190,52 +192,54 @@ class JWWidget : GlanceAppWidget() {
                                 Text(
                                     text = article.title,
                                     style = TextStyle(
-                                        fontSize = 17.sp,
+                                        fontSize = settings.titleFontSizeSp.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = ColorProvider(
                                             day = Color.Black,
                                             night = Color.White
                                         )
                                     ),
-                                    maxLines = 3,
+                                    maxLines = settings.titleMaxLines,
                                     modifier = GlanceModifier.defaultWeight()
                                 )
 
-                                if (article.bitmap != null) {
+                                if (settings.showImages && article.bitmap != null) {
                                     Spacer(modifier = GlanceModifier.width(8.dp))
                                     Image(
                                         provider = ImageProvider(article.bitmap),
                                         contentDescription = article.title,
                                         contentScale = ContentScale.Fit,
                                         modifier = GlanceModifier
-                                            .width(84.dp)
+                                            .width(settings.imageWidthDp.dp)
                                             .wrapContentHeight()
                                             .cornerRadius(6.dp)
                                     )
                                 }
                             }
 
-                            Spacer(modifier = GlanceModifier.height(4.dp))
-
                             // 3. Zeile: Description auf voller Breite
-                            Text(
-                                text = article.description,
-                                style = TextStyle(
-                                    fontSize = 12.sp,
-                                    color = ColorProvider(
-                                        day = Color.DarkGray,
-                                        night = Color.LightGray
-                                    )
-                                ),
-                                maxLines = 20,
-                                modifier = GlanceModifier.fillMaxWidth()
-                            )
+                            if (settings.showDescription && article.description.isNotBlank()) {
+                                Spacer(modifier = GlanceModifier.height(4.dp))
+                                Text(
+                                    text = article.description,
+                                    style = TextStyle(
+                                        fontSize = settings.descriptionFontSizeSp.sp,
+                                        color = ColorProvider(
+                                            day = Color.DarkGray,
+                                            night = Color.LightGray
+                                        )
+                                    ),
+                                    maxLines = settings.descriptionMaxLines,
+                                    modifier = GlanceModifier.fillMaxWidth()
+                                )
+                            }
                         }
                     }
                 }
             }
         }
     }
+
 
     private fun formatRelativeTime(timestampMillis: Long): String {
         return DateUtils.getRelativeTimeSpanString(
@@ -246,7 +250,7 @@ class JWWidget : GlanceAppWidget() {
         ).toString()
     }
 
-    private fun loadBitmap(urlString: String): Bitmap? {
+    private fun loadBitmap(urlString: String, targetSizePx: Int): Bitmap? {
         return try {
             val connection = (URL(urlString).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 10000
@@ -260,7 +264,7 @@ class JWWidget : GlanceAppWidget() {
             val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
 
-            options.inSampleSize = calculateInSampleSize(options, 160, 160)
+            options.inSampleSize = calculateInSampleSize(options, targetSizePx, targetSizePx)
             options.inJustDecodeBounds = false
 
             BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
@@ -268,6 +272,7 @@ class JWWidget : GlanceAppWidget() {
             null
         }
     }
+
 
     private fun calculateInSampleSize(options: BitmapFactory.Options, reqWidth: Int, reqHeight: Int): Int {
 
@@ -281,35 +286,5 @@ class JWWidget : GlanceAppWidget() {
             }
         }
         return inSampleSize
-    }
-}
-
-class JWWidgetReceiver : GlanceAppWidgetReceiver() {
-    override val glanceAppWidget: GlanceAppWidget = JWWidget()
-}
-
-val ArticleUrlKey = ActionParameters.Key<String>("article_url")
-
-class OpenUrlAction : ActionCallback {
-    override suspend fun onAction(
-        context: Context,
-        glanceId: GlanceId,
-        parameters: ActionParameters
-    ) {
-        val url = parameters[ArticleUrlKey] ?: return
-        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        context.startActivity(intent)
-    }
-}
-
-class RefreshAction : ActionCallback {
-    override suspend fun onAction(
-        context: Context,
-        glanceId: GlanceId,
-        parameters: ActionParameters
-    ) {
-        JWWidget().update(context, glanceId)
     }
 }
