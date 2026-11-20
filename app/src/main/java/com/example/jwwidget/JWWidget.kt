@@ -41,16 +41,19 @@ import androidx.glance.layout.wrapContentWidth
 import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.concurrent.atomic.AtomicInteger
 
-/**
- * Zentrale Farbdefinitionen für Hell- und Dunkelmodus des Widgets.
- */
 private object JwColors {
     val BrandRed = ColorProvider(day = Color(0xFFCC0000), night = Color(0xFFFF5555))
     val PrimaryText = ColorProvider(day = Color.Black, night = Color.White)
@@ -62,16 +65,40 @@ private object JwColors {
     )
 }
 
-/**
- * Hauptklasse des Jetpack-Glance-Homescreen-Widgets für junge Welt.
- * Lädt den RSS-Feed, bereitet Thumbnails speicherschonend auf und rendert die UI.
- */
 class JWWidget : GlanceAppWidget() {
 
     companion object {
         private const val HOME_URL = "https://jungewelt.de"
         private const val USER_AGENT = "JWWidget/1.0"
-        private const val NETWORK_TIMEOUT_MS = 10_000
+        private const val NETWORK_TIMEOUT_MS = 8_000
+        private const val TOTAL_FETCH_TIMEOUT_MS = 15_000L
+        private const val MAX_TOTAL_BITMAP_BYTES = 4_000_000
+
+        // Hintergrund-Scope für automatische Selbstheilung bei Fehlern
+        private val recoveryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+        fun scheduleSelfHealing(context: Context, glanceId: GlanceId, delayMs: Long = 5_000L) {
+            val appContext = context.applicationContext
+            recoveryScope.launch {
+                delay(delayMs)
+                runCatching {
+                    JWWidget().update(appContext, glanceId)
+                }
+            }
+        }
+    }
+
+    /**
+     * Wird von Glance aufgerufen, falls beim Rendern der UI ein unerwarteter Fehler auftritt.
+     * Startet das Widget automatisch nach 5 Sekunden neu.
+     */
+    override fun onCompositionError(
+        context: Context,
+        glanceId: GlanceId,
+        appWidgetId: Int,
+        throwable: Throwable
+    ) {
+        scheduleSelfHealing(context, glanceId, delayMs = 5_000L)
     }
 
     override suspend fun provideGlance(
@@ -80,18 +107,39 @@ class JWWidget : GlanceAppWidget() {
     ) {
         val settings = WidgetSettingsRepository.load(context)
 
-        // 1. RSS-Artikel abrufen, optional [Online-Abo]-Beiträge filtern und begrenzen
-        val filteredArticles = RssReader.fetchArticles()
+        // 1. Feed mit hartem Timeout und Fehler-Catching abrufen (verhindert Hänger bei schlechtem Netz)
+        val rawArticles = withTimeoutOrNull(TOTAL_FETCH_TIMEOUT_MS) {
+            runCatching { RssReader.fetchArticles() }.getOrNull()
+        }
+
+        // Falls der Abruf fehlgeschlagen ist: Saubere Fallback-UI anzeigen + Auto-Neustart planen
+        if (rawArticles == null) {
+            scheduleSelfHealing(context, id, delayMs = 10_000L)
+            provideContent {
+                ErrorFallbackContent(context = context, settings = settings)
+            }
+            return
+        }
+
+        val filteredArticles = rawArticles
             .filter { article ->
                 !settings.hideOnlineAbo || !article.title.contains("[Online-Abo]", ignoreCase = true)
             }
             .take(settings.maxArticles)
 
-        // 2. Vorschaubilder parallel im IO-Thread herunterladen & herunterskalieren
-        val targetBitmapPx = (settings.imageWidthDp * 2).coerceAtLeast(80)
+        // 2. Thumbnails parallel laden, exakt skalieren und Gesamt-RAM-Budget überwachen
+        val targetBitmapPx = (settings.imageWidthDp * 2).coerceIn(80, 240)
+        val usedBitmapBytes = AtomicInteger(0)
+
         val uiArticles = withContext(Dispatchers.IO) {
             filteredArticles.map { article ->
                 async {
+                    val bitmap = if (settings.showImages && article.imageUrl != null) {
+                        loadBoundedBitmap(article.imageUrl, targetBitmapPx, usedBitmapBytes)
+                    } else {
+                        null
+                    }
+
                     UiArticle(
                         id = article.link,
                         link = article.link,
@@ -99,17 +147,13 @@ class JWWidget : GlanceAppWidget() {
                         title = article.title,
                         description = article.description,
                         relativeTime = formatRelativeTime(article.pubDateMillis),
-                        bitmap = if (settings.showImages) {
-                            article.imageUrl?.let { loadBitmap(it, targetBitmapPx) }
-                        } else {
-                            null
-                        }
+                        bitmap = bitmap
                     )
                 }
             }.awaitAll()
         }
 
-        // 3. Widget-Oberfläche rendern
+        // 3. Reguläre Widget-Oberfläche rendern
         provideContent {
             Column(
                 modifier = GlanceModifier
@@ -142,8 +186,42 @@ class JWWidget : GlanceAppWidget() {
     }
 
     /**
-     * Fixierte Kopfzeile mit klickbarem Logo (Startseite), Reload-Button (↻) und Settings-Button (⚙).
+     * Fallback-Ansicht bei Netzwerkausfall: Verhindert "Inhalt kann nicht angezeigt werden"
+     * und erlaubt sofortiges manuelles oder automatisches Neu-Laden.
      */
+    @Composable
+    private fun ErrorFallbackContent(
+        context: Context,
+        settings: WidgetSettings
+    ) {
+        Column(
+            modifier = GlanceModifier
+                .fillMaxSize()
+                .background(JwColors.background(settings.backgroundAlpha))
+                .padding(12.dp)
+        ) {
+            WidgetHeader(
+                context = context,
+                logoHeightDp = settings.logoHeightDp
+            )
+
+            Box(
+                modifier = GlanceModifier
+                    .fillMaxSize()
+                    .clickable(actionRunCallback<RefreshAction>()),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "Feed konnte nicht geladen werden.\nNeustart läuft … (Tippen zum sofortigen Laden)",
+                    style = TextStyle(
+                        fontSize = 12.sp,
+                        color = JwColors.SecondaryText
+                    )
+                )
+            }
+        }
+    }
+
     @Composable
     private fun WidgetHeader(
         context: Context,
@@ -153,7 +231,6 @@ class JWWidget : GlanceAppWidget() {
             modifier = GlanceModifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Klickbares Logo -> Öffnet die Startseite im Browser
             Box(
                 modifier = GlanceModifier
                     .defaultWeight()
@@ -176,7 +253,6 @@ class JWWidget : GlanceAppWidget() {
 
             Spacer(modifier = GlanceModifier.width(8.dp))
 
-            // Manueller Aktualisieren-Button (↻)
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = GlanceModifier
@@ -196,7 +272,6 @@ class JWWidget : GlanceAppWidget() {
 
             Spacer(modifier = GlanceModifier.width(2.dp))
 
-            // Einstellungs-Button (⚙) -> Startet die MainActivity direkt über den Launcher
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = GlanceModifier
@@ -221,11 +296,6 @@ class JWWidget : GlanceAppWidget() {
             }
         }
     }
-
-    /**
-     * Einzelner Artikel-Eintrag in der Liste:
-     * Zeile 1: Kategorie & Alter | Zeile 2: Überschrift + Thumbnail | Zeile 3: Teaser auf voller Breite.
-     */
     @Composable
     private fun ArticleItem(
         article: UiArticle,
@@ -241,7 +311,6 @@ class JWWidget : GlanceAppWidget() {
                 )
                 .padding(vertical = 6.dp)
         ) {
-            // 1. Zeile: Kategorie und relatives Alter (z. B. "INLAND - vor 17 Min.")
             if (settings.showCategoryAndTime) {
                 Text(
                     text = "${article.category.uppercase()} - ${article.relativeTime}",
@@ -253,8 +322,6 @@ class JWWidget : GlanceAppWidget() {
                 )
                 Spacer(modifier = GlanceModifier.height(2.dp))
             }
-
-            // 2. Zeile: Überschrift links und Vorschaubild in Original-Seitenverhältnis rechts
             Row(
                 modifier = GlanceModifier.fillMaxWidth(),
                 verticalAlignment = Alignment.Top
@@ -269,7 +336,6 @@ class JWWidget : GlanceAppWidget() {
                     maxLines = settings.titleMaxLines,
                     modifier = GlanceModifier.defaultWeight()
                 )
-
                 if (settings.showImages && article.bitmap != null) {
                     Spacer(modifier = GlanceModifier.width(8.dp))
                     Image(
@@ -283,7 +349,6 @@ class JWWidget : GlanceAppWidget() {
                     )
                 }
             }
-// 3. Zeile: Beschreibungstext (Teaser) über die gesamte Breite
             if (settings.showDescription && article.description.isNotBlank()) {
                 Spacer(modifier = GlanceModifier.height(4.dp))
                 Text(
@@ -298,9 +363,6 @@ class JWWidget : GlanceAppWidget() {
             }
         }
     }
-    /**
-     * Formatiert einen Unix-Zeitstempel in eine relative Zeitangabe (z. B. "vor 17 Min.").
-     */
     private fun formatRelativeTime(timestampMillis: Long): String {
         return DateUtils.getRelativeTimeSpanString(
             timestampMillis,
@@ -310,32 +372,53 @@ class JWWidget : GlanceAppWidget() {
         ).toString()
     }
     /**
-     * Lädt ein Bild aus dem Netz und skaliert es bereits beim Dekodieren herunter,
-     * um das RemoteViews-Speicherlimit von Android-Widgets nicht zu überschreiten.
+     * Lädt ein Bild, skaliert es exakt auf die Zielbreite herunter und prüft,
+     * ob das Gesamt-Speicherbudget (450 KB) noch Platz hat.
      */
-    private fun loadBitmap(urlString: String, targetSizePx: Int): Bitmap? {
+    private fun loadBoundedBitmap(
+        urlString: String,
+        targetWidthPx: Int,
+        usedBytes: AtomicInteger
+    ): Bitmap? {
+        if (usedBytes.get() >= MAX_TOTAL_BITMAP_BYTES) return null
+        var connection: HttpURLConnection? = null
         return try {
-            val connection = (URL(urlString).openConnection() as HttpURLConnection).apply {
+            connection = (URL(urlString).openConnection() as HttpURLConnection).apply {
                 connectTimeout = NETWORK_TIMEOUT_MS
                 readTimeout = NETWORK_TIMEOUT_MS
                 setRequestProperty("User-Agent", USER_AGENT)
             }
             val bytes = connection.inputStream.use { it.readBytes() }
-            connection.disconnect()
-// Erst nur Bildabmessungen auslesen, ohne Pixel in den RAM zu laden
             val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
-            options.inSampleSize = calculateInSampleSize(options, targetSizePx, targetSizePx)
+            options.inSampleSize = calculateInSampleSize(options, targetWidthPx, targetWidthPx)
             options.inJustDecodeBounds = false
-            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+            val decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options) ?: return null
+// Exakt auf Zielbreite skalieren (Original-Seitenverhältnis bleibt erhalten)
+            val scaled = if (decoded.width > targetWidthPx) {
+                val aspectRatio = decoded.height.toFloat() / decoded.width.toFloat()
+                val targetHeightPx = (targetWidthPx * aspectRatio).toInt().coerceAtLeast(1)
+                Bitmap.createScaledBitmap(decoded, targetWidthPx, targetHeightPx, true).also {
+                    if (it != decoded) decoded.recycle()
+                }
+            } else {
+                decoded
+            }
+// Prüfen, ob das Bild noch ins 450-KB-Gesamtbudget passt
+            val bitmapBytes = scaled.allocationByteCount
+            if (usedBytes.addAndGet(bitmapBytes) > MAX_TOTAL_BITMAP_BYTES) {
+                usedBytes.addAndGet(-bitmapBytes)
+                scaled.recycle()
+                null
+            } else {
+                scaled
+            }
         } catch (e: Exception) {
             null
+        } finally {
+            connection?.disconnect()
         }
     }
-    /**
-     * Berechnet eine Zweierpotenz für inSampleSize, sodass das dekodierte Bild
-     * möglichst nah an der gewünschten Zielgröße liegt.
-     */
     private fun calculateInSampleSize(
         options: BitmapFactory.Options,
         reqWidth: Int,
