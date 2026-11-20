@@ -49,6 +49,7 @@ import java.net.URL
 import androidx.compose.ui.unit.dp
 import androidx.glance.layout.Box
 import androidx.glance.layout.size
+import androidx.glance.layout.wrapContentWidth
 
 
 data class UiArticle(
@@ -102,33 +103,24 @@ class JWWidget : GlanceAppWidget() {
                     modifier = GlanceModifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Klickbarer Titel -> Startseite
-                    Column(
+                    // Klickbares Logo -> Startseite
+                    Box(
                         modifier = GlanceModifier
                             .defaultWeight()
                             .clickable(
                                 actionRunCallback<OpenUrlAction>(
                                     actionParametersOf(ArticleUrlKey to "https://jungewelt.de")
                                 )
-                            )
+                            ),
+                        contentAlignment = Alignment.CenterStart
                     ) {
-                        Text(
-                            text = "junge Welt",
-                            style = TextStyle(
-                                color = ColorProvider(
-                                    day = Color(0xFFCC0000),
-                                    night = Color(0xFFFF5555)
-                                ),
-                                fontSize = 25.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        )
-                        Text(
-                            text = "DIE TAGESZEITUNG",
-                            style = TextStyle(
-                                fontSize = 9.sp,
-                                color = ColorProvider(day = Color.Black, night = Color.White)
-                            )
+                        Image(
+                            provider = ImageProvider(R.drawable.junge_welt_logo_dark),
+                            contentDescription = "junge Welt Logo",
+                            contentScale = ContentScale.Fit,
+                            modifier = GlanceModifier
+                                .height(32.dp)       // Höhe nach Wunsch anpassen
+                                .wrapContentWidth()  // Breite passt sich automatisch dem Logo-Seitenverhältnis an
                         )
                     }
 
