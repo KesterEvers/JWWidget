@@ -50,6 +50,8 @@ import androidx.compose.ui.unit.dp
 import androidx.glance.layout.Box
 import androidx.glance.layout.size
 import androidx.glance.layout.wrapContentWidth
+import androidx.glance.appwidget.action.actionStartActivity
+
 
 class JWWidget : GlanceAppWidget() {
 
@@ -146,6 +148,38 @@ class JWWidget : GlanceAppWidget() {
                             )
                         )
                     }
+
+                    Spacer(modifier = GlanceModifier.width(2.dp))
+
+                    // Zahnrad-Button (⚙) -> Öffnet MainActivity direkt über den Launcher
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = GlanceModifier
+                            .size(36.dp)
+                            .cornerRadius(18.dp)
+                            .clickable(
+                                actionStartActivity(
+                                    Intent(context, MainActivity::class.java).apply {
+                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    }
+                                )
+                            )
+                    ) {
+                        Text(
+                            text = "⚙",
+                            style = TextStyle(
+                                fontSize = 20.sp,
+                                color = ColorProvider(
+                                    day = Color(0xFFCC0000),
+                                    night = Color(0xFFFF5555)
+                                )
+                            )
+                        )
+                    }
+
+
+
+
                 }
 
                 Spacer(modifier = GlanceModifier.height(6.dp))

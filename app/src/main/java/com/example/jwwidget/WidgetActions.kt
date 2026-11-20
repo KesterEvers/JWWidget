@@ -32,3 +32,16 @@ class RefreshAction : ActionCallback {
         JWWidget().update(context, glanceId)
     }
 }
+
+class OpenSettingsAction : ActionCallback {
+    override suspend fun onAction(
+        context: Context,
+        glanceId: GlanceId,
+        parameters: ActionParameters
+    ) {
+        val intent = Intent(context, MainActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(intent)
+    }
+}
