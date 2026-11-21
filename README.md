@@ -44,7 +44,7 @@ Ein natives Android-Homescreen-Widget auf Basis von **Jetpack Glance**, das den 
 ### Projekt lokal einrichten
 1. Repository klonen:
    ```bash
-   git clone https://github.com
+   git clone https://github.com/KesterEvers/JWWidget.git
    ```
 2. Projekt in **Android Studio** öffnen (*File -> Open* -> Ordner `JWWidget` auswählen).
 3. Gradle-Sync abwarten und die App über **Run (`▶`)** auf einem Emulator oder verbundenen Android-Gerät installieren.
