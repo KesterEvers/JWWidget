@@ -77,6 +77,17 @@ class JWWidget : GlanceAppWidget() {
         private const val USER_AGENT = "JWWidget/1.0"
         private const val NETWORK_TIMEOUT_MS = 8_000
         private const val TOTAL_FETCH_TIMEOUT_MS = 15_000L
+
+        /**
+         * Zähler, der bei jedem Refresh hochgezählt wird. Wird in die itemId
+         * der LazyColumn-Items eingerechnet, damit der RemoteViews-Adapter
+         * alle Items als "neu" behandelt und die Scroll-Position zurücksetzt.
+         */
+        @Volatile
+        private var refreshGeneration: Long = 0L
+
+        fun nextRefreshGeneration(): Long = ++refreshGeneration
+
         // Hintergrund-Scope für automatische Selbstheilung bei Fehlern
         private val recoveryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -211,7 +222,7 @@ class JWWidget : GlanceAppWidget() {
                 ) {
                     items(
                         items = uiArticles,
-                        itemId = { it.id.hashCode().toLong() }
+                        itemId = { it.id.hashCode().toLong() xor (refreshGeneration shl 32) }
                     ) { article ->
                         ArticleItem(
                             article = article,

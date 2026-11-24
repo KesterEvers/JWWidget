@@ -127,7 +127,7 @@ fun SettingsScreen(onConfigured: () -> Unit) {
                 label = "Anzahl geladener Artikel",
                 valueText = "${settings.maxArticles}",
                 value = settings.maxArticles.toFloat(),
-                range = 5f..30f,
+                range = 5f..50f,
                 steps = 24,
                 onValueChange = { settings = settings.copy(maxArticles = it.roundToInt()) }
             )

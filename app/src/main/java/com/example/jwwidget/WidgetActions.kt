@@ -29,6 +29,9 @@ class RefreshAction : ActionCallback {
         glanceId: GlanceId,
         parameters: ActionParameters
     ) {
+        // Increment generation so LazyColumn itemIds change, forcing scroll-to-top
+        JWWidget.nextRefreshGeneration()
+        // Re-fetch RSS feed and rebuild the widget with fresh data
         JWWidget().update(context, glanceId)
     }
 }
