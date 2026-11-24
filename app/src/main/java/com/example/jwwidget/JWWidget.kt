@@ -1,10 +1,14 @@
 package com.example.jwwidget
 
+import android.appwidget.AppWidgetManager
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.os.Build
 import android.text.format.DateUtils
+import android.view.WindowManager
+import android.widget.RemoteViews
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -53,6 +57,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.math.max
 
 private object JwColors {
     val BrandRed = ColorProvider(day = Color(0xFFCC0000), night = Color(0xFFFF5555))
@@ -72,10 +77,24 @@ class JWWidget : GlanceAppWidget() {
         private const val USER_AGENT = "JWWidget/1.0"
         private const val NETWORK_TIMEOUT_MS = 8_000
         private const val TOTAL_FETCH_TIMEOUT_MS = 15_000L
-        private const val MAX_TOTAL_BITMAP_BYTES = 4_000_000
-
         // Hintergrund-Scope für automatische Selbstheilung bei Fehlern
         private val recoveryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+        /**
+         * Schätzt das Widget-Bitmap-Speicherlimit des Geräts (6 × Breite × Höhe Bytes).
+         * system_server berechnet diesen Cap einmal beim Booten aus der echten Display-Größe.
+         */
+        fun calculateWidgetMemoryCapBytes(context: Context): Long {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val bounds = context.getSystemService(WindowManager::class.java)
+                    ?.currentWindowMetrics?.bounds
+                if (bounds != null && bounds.width() > 0 && bounds.height() > 0) {
+                    return 6L * bounds.width().toLong() * bounds.height().toLong()
+                }
+            }
+            val dm = context.resources.displayMetrics
+            return 6L * dm.widthPixels.toLong() * dm.heightPixels.toLong()
+        }
 
         fun scheduleSelfHealing(context: Context, glanceId: GlanceId, delayMs: Long = 5_000L) {
             val appContext = context.applicationContext
@@ -90,7 +109,7 @@ class JWWidget : GlanceAppWidget() {
 
     /**
      * Wird von Glance aufgerufen, falls beim Rendern der UI ein unerwarteter Fehler auftritt.
-     * Startet das Widget automatisch nach 5 Sekunden neu.
+     * Zeigt eine Text-only Fallback-UI an (0 Bitmaps) und plant einen automatischen Neustart.
      */
     override fun onCompositionError(
         context: Context,
@@ -98,6 +117,12 @@ class JWWidget : GlanceAppWidget() {
         appWidgetId: Int,
         throwable: Throwable
     ) {
+        // Sofort eine text-only Fallback-UI anzeigen, damit der Launcher
+        // nicht "Inhalt kann nicht angezeigt werden" zeigt.
+        val fallback = RemoteViews(context.packageName, android.R.layout.simple_list_item_1).apply {
+            setTextViewText(android.R.id.text1, "Widget wird neu geladen…")
+        }
+        AppWidgetManager.getInstance(context).updateAppWidget(appWidgetId, fallback)
         scheduleSelfHealing(context, glanceId, delayMs = 5_000L)
     }
 
@@ -127,7 +152,14 @@ class JWWidget : GlanceAppWidget() {
             }
             .take(settings.maxArticles)
 
-        // 2. Thumbnails parallel laden, exakt skalieren und Gesamt-RAM-Budget überwachen
+        // 2. Thumbnails parallel laden, exakt skalieren und geräte-basiertes RAM-Budget überwachen
+        val distinctImageCount = if (settings.showImages) {
+            filteredArticles.count { it.imageUrl != null }.coerceAtLeast(1)
+        } else {
+            1
+        }
+        val memoryCapBytes = calculateWidgetMemoryCapBytes(context)
+        val perImageCapBytes = memoryCapBytes / max(1, distinctImageCount)
         val targetBitmapPx = (settings.imageWidthDp * 2).coerceIn(80, 240)
         val usedBitmapBytes = AtomicInteger(0)
 
@@ -135,7 +167,13 @@ class JWWidget : GlanceAppWidget() {
             filteredArticles.map { article ->
                 async {
                     val bitmap = if (settings.showImages && article.imageUrl != null) {
-                        loadBoundedBitmap(article.imageUrl, targetBitmapPx, usedBitmapBytes)
+                        loadBoundedBitmap(
+                            urlString = article.imageUrl,
+                            targetWidthPx = targetBitmapPx,
+                            usedBytes = usedBitmapBytes,
+                            perImageCapBytes = perImageCapBytes,
+                            totalCapBytes = memoryCapBytes
+                        )
                     } else {
                         null
                     }
@@ -372,15 +410,17 @@ class JWWidget : GlanceAppWidget() {
         ).toString()
     }
     /**
-     * Lädt ein Bild, skaliert es exakt auf die Zielbreite herunter und prüft,
-     * ob das Gesamt-Speicherbudget (450 KB) noch Platz hat.
+     * Lädt ein Bild, skaliert es mit RGB_565 auf die Zielbreite herunter und prüft,
+     * ob das geräte-basierte Speicherbudget noch Platz hat.
      */
     private fun loadBoundedBitmap(
         urlString: String,
         targetWidthPx: Int,
-        usedBytes: AtomicInteger
+        usedBytes: AtomicInteger,
+        perImageCapBytes: Long,
+        totalCapBytes: Long
     ): Bitmap? {
-        if (usedBytes.get() >= MAX_TOTAL_BITMAP_BYTES) return null
+        if (usedBytes.get() >= totalCapBytes) return null
         var connection: HttpURLConnection? = null
         return try {
             connection = (URL(urlString).openConnection() as HttpURLConnection).apply {
@@ -389,12 +429,48 @@ class JWWidget : GlanceAppWidget() {
                 setRequestProperty("User-Agent", USER_AGENT)
             }
             val bytes = connection.inputStream.use { it.readBytes() }
-            val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
-            options.inSampleSize = calculateInSampleSize(options, targetWidthPx, targetWidthPx)
-            options.inJustDecodeBounds = false
-            val decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options) ?: return null
-// Exakt auf Zielbreite skalieren (Original-Seitenverhältnis bleibt erhalten)
+
+            // Schritt 1: Dimensionen ermitteln
+            val probeOpts = BitmapFactory.Options().apply {
+                inJustDecodeBounds = true
+                inPreferredConfig = Bitmap.Config.RGB_565
+            }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, probeOpts)
+
+            // Bestimme tatsächliche Bytes pro Pixel (PNG/WebP mit Alpha wird
+            // von BitmapFactory auf ARGB_8888 hochgestuft)
+            val bytesPerPixel = if (probeOpts.outConfig != null &&
+                probeOpts.outConfig != Bitmap.Config.RGB_565
+            ) 4L else 2L
+
+            // Schritt 2: inSampleSize berechnen – auf Zielbreite UND auf per-Image-Cap
+            var sampleSize = 1
+            while (
+                (probeOpts.outWidth / (sampleSize * 2) >= targetWidthPx &&
+                    probeOpts.outHeight / (sampleSize * 2) >= targetWidthPx) ||
+                (probeOpts.outWidth / sampleSize > targetWidthPx * 2) ||
+                (probeOpts.outHeight / sampleSize > targetWidthPx * 2)
+            ) {
+                sampleSize *= 2
+            }
+            // Zusätzlich auf per-Image-Cap begrenzen
+            while (
+                (max(1, probeOpts.outWidth / sampleSize).toLong() *
+                    max(1, probeOpts.outHeight / sampleSize).toLong() *
+                    bytesPerPixel) > perImageCapBytes
+            ) {
+                sampleSize *= 2
+            }
+
+            val decodeOpts = BitmapFactory.Options().apply {
+                inSampleSize = sampleSize
+                inPreferredConfig = Bitmap.Config.RGB_565
+                inJustDecodeBounds = false
+            }
+            val decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, decodeOpts)
+                ?: return null
+
+            // Exakt auf Zielbreite skalieren (Seitenverhältnis bleibt erhalten)
             val scaled = if (decoded.width > targetWidthPx) {
                 val aspectRatio = decoded.height.toFloat() / decoded.width.toFloat()
                 val targetHeightPx = (targetWidthPx * aspectRatio).toInt().coerceAtLeast(1)
@@ -404,9 +480,10 @@ class JWWidget : GlanceAppWidget() {
             } else {
                 decoded
             }
-// Prüfen, ob das Bild noch ins 450-KB-Gesamtbudget passt
+
+            // Prüfen, ob das Bild noch ins Gesamtbudget passt
             val bitmapBytes = scaled.allocationByteCount
-            if (usedBytes.addAndGet(bitmapBytes) > MAX_TOTAL_BITMAP_BYTES) {
+            if (usedBytes.addAndGet(bitmapBytes) > totalCapBytes) {
                 usedBytes.addAndGet(-bitmapBytes)
                 scaled.recycle()
                 null
@@ -418,21 +495,5 @@ class JWWidget : GlanceAppWidget() {
         } finally {
             connection?.disconnect()
         }
-    }
-    private fun calculateInSampleSize(
-        options: BitmapFactory.Options,
-        reqWidth: Int,
-        reqHeight: Int
-    ): Int {
-        val (height, width) = options.outHeight to options.outWidth
-        var inSampleSize = 1
-        if (height > reqHeight || width > reqWidth) {
-            val halfHeight = height / 2
-            val halfWidth = width / 2
-            while (halfHeight / inSampleSize >= reqHeight && halfWidth / inSampleSize >= reqWidth) {
-                inSampleSize *= 2
-            }
-        }
-        return inSampleSize
     }
 }
